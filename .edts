@@ -1,0 +1,5 @@
+:name "erl9p"
+:node-sname "erl9p"
+:lib-dirs '("deps")
+:app-include-dirs '("include")
+:project-include-dirs '()

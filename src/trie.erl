@@ -1,85 +1,97 @@
-%% Simple trie to represent symbolic 9p filesystem.
-
 -module(trie).
 
--export([new/1, find/2, add/2, add/3, del/2, print/1]).
+-export([new/0,
+         node_qid/1,
+         node_children/1,
+         find/2,
+         insert/3,
+         remove/2,
+         qid_type/1,
+         qid_version/1,
+         qid_path/1,
+         print/1]).
 
--type qid()  :: {Type::integer(), Version::integer(), Path::integer()}.
+-type qid() :: {Type :: integer(),
+                Version :: integer(),
+                Path :: integer()}.
 
--record(node, {name  :: binary(),
-               qid   :: qid(),
-               nodes :: [#node{}]}).
+-type name() :: binary().
 
--spec new(Name::binary()) -> #node{}.
-new(Name) ->
-  #node{name=Name,
-        qid=make_qid(),
-        nodes=[]}.
+-record(node, {qid :: qid(),
+               children :: dict()}).
 
--spec find(Root::#node{}, Path::[binary()]) -> false | #node{}.
-find(R, []) ->
-  R;
+-spec new() -> #node{}.
+new() ->
+  #node{qid=make_qid(),
+        children=dict:new()}.
 
-find(#node{nodes=Nodes}, [Name|T]) ->
-  case lists:keyfind(Name, #node.name, Nodes) of
-    false ->
-      false;
-    NextRoot ->
-      find(NextRoot, T)
+node_qid(Node) when is_record(Node, node) ->
+  Node#node.qid.
+
+node_children(Node) when is_record(Node, node) ->
+  Node#node.children.
+
+-spec find(#node{}, binary()) -> {ok, #node{}} | false.
+find(Node, []) ->
+  {ok, Node};
+
+find(#node{children=C}, [Name|T]) ->
+  case dict:find(Name, C) of
+    {ok, Node} ->
+      find(Node, T);
+    _ ->
+      false
   end.
 
--spec add(Root::#node{}, Node::#node{}) -> #node{}.
-add(Root, Node) ->
-  add(Root, Node, []).
+-spec insert(#node{}, [name()], #node{}) -> #node{}.
+insert(#node{children=C}=Root, [Name], NewNode) ->
+  Root#node{children=dict:store(Name, NewNode, C)};
 
--spec add(Root::#node{}, Node::#node{}, Path::[binary()]) -> #node{}.
-add(Root, Node, Path) when not is_record(Node, node) ->
-  add(Root, trie:new(Node), Path);
+insert(#node{children=C}=Root, [PathName|T], NewNode) ->
+  case dict:find(PathName, C) of
+    {ok, Node} ->
+      Update = insert(Node, T, NewNode);
+    _ ->
+      Update = insert(new(), T, NewNode)
+  end,
+  Root#node{children=dict:store(PathName, Update, C)}.
 
-add(Root, Node, []) ->
-  add(Root, Node, [Root#node.name]);
+remove(#node{children=C}=Root, [Name]) ->
+  Root#node{children=dict:erase(Name, C)};
 
-add(#node{name=Name, nodes=Nodes}=Root, Child, [Name]) ->
-  Root#node{nodes=[Child | Nodes]};
-
-add(#node{nodes=Nodes}=Root, Child, [Name|T]) ->
-  case lists:keyfind(Name, #node.name, Nodes) of
-    false ->
-      NewNode = add(new(Name), Child, T),
-      Root#node{nodes = [NewNode | Nodes]};
-    NextRoot ->
-      NewNode = add(NextRoot, Child, T),
-      NewNodes = lists:delete(NextRoot, Nodes),
-      Root#node{nodes = [NewNode | NewNodes]}
+remove(#node{children=C}=Root, [PathName|T]) ->
+  case dict:find(PathName, C) of
+    {ok, Node} ->
+      Update = remove(Node, T),
+      Root#node{children=dict:store(PathName, Update, C)};
+    _ ->
+      Root
   end.
 
--spec del(Root::#node{}, Path::[binary()]) -> #node{}.
-del(_, []) ->
-  ok;
-
-del(#node{nodes=Nodes}=Root, [Name|T]) ->
-  case lists:keyfind(Name, #node.name, Nodes) of
-    false ->
-      Root;
-    NextRoot ->
-      NewNodes = lists:delete(NextRoot, Nodes),
-      case del(NextRoot, T) of
-        ok ->
-          Root#node{nodes = NewNodes};
-        NewNode ->
-          Root#node{nodes = [NewNode | NewNodes]}
-      end
-  end.
+%% qid
 
 -spec make_qid() -> qid().
 make_qid() ->
-  0.
+  {0, 0, 0}.
 
-print(Root) ->
-  print(Root, []).
+qid_type({T, _, _}) ->
+  T.
 
-print(#node{name=Name, qid=Qid, nodes=Nodes}, Path) ->
-  NewPath = [Name|Path],
-  io:format("~p#~p~n", [lists:reverse(NewPath), Qid]),
-  [print(C, NewPath) || C <- Nodes],
+qid_version({_, V, _}) ->
+  V.
+
+qid_path({_, _, P}) ->
+  P.
+
+%% utils
+
+print(#node{children=C, qid=Q}) ->
+  io:format("/ # ~p~n", [Q]),
+  print1(C, "/"),
   ok.
+
+print1(Children, Prefix) ->
+  dict:map(fun(K, V) ->
+               io:format("~p~p # ~p~n", [Prefix, K, V#node.qid]),
+               print1(V#node.children, Prefix++K++"/")
+           end, Children).
