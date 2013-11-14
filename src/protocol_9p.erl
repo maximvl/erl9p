@@ -13,7 +13,7 @@
 -include("9p.hrl").
 
 %% API
--export([start_link/4, init/1]).
+-export([start_link/4, init/4]).
 
 -define(SERVER, ?MODULE).
 
@@ -39,8 +39,8 @@ start_link(Ref, Socket, Transport, Opts) ->
 %%% gen_server callbacks
 %%%===================================================================
 
-init([Ref, Socket, Transport, Opts]) ->
-  {ok, Handler} = proplists:get_value(handler, Opts),
+init(Ref, Socket, Transport, Opts) ->
+  Handler = proplists:get_value(handler, Opts, server_impl),
   MSize = proplists:get_value(msg_size, Opts, ?MSG_SIZE),
   {HState2, MSize2} = case Handler:init(Opts) of
                         {ok, HState} ->
@@ -62,12 +62,17 @@ wait_request(State) ->
 
 wait_request(Buffer, #state{transport=T, socket=S, msg_size=MSize}=State) ->
   NeedBytes = MSize - byte_size(Buffer),
-  case T:recv(S, NeedBytes) of
+  case T:recv(S, NeedBytes, infinity) of
     {ok, Data} ->
+
       AllData = <<Buffer/binary, Data/binary>>,
       if byte_size(AllData) == MSize ->
+          io:format("flag 3~n"),
+
           parse_request(AllData, State);
          true ->
+          io:format("flag 4~n"),
+
           wait_request(AllData, State)
       end;
     Other ->
@@ -107,7 +112,7 @@ parse_message(_, State) ->
   terminate("session was not started with TVersion", State).
 
 terminate(Reason, #state{transport=T, socket=S, handler=H, handler_state=HS}) ->
-  H:terminate(HS),
+  H:terminate(Reason, HS),
   error_logger:error_report(["9p terminating", {reason, Reason}]),
   T:close(S).
 

@@ -11,9 +11,10 @@
 
 start(_StartType, _StartArgs) ->
   {ok, _} = ranch:start_listener(
-              tcp_echo, 100,
-              ranch_tcp, [{port, 5555}, {active, true}],
-              echo_protocol, []),
+              erl9p, 10,
+              ranch_tcp,
+              [{port, 5555}, {active, false}],
+              protocol_9p, []),
   erl9p_sup:start_link().
 
 stop(_State) ->

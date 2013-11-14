@@ -7,6 +7,3 @@
 
 init(_Props) ->
   {ok, []}.
-
-handle_9p(?TAuth, _Data) ->
-  {ok, }.
