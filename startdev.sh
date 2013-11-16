@@ -1,1 +1,1 @@
-erl -pa deps/*/ebin ebin -s sync
+erl -pa deps/*/ebin ebin -s sync -s erl9p

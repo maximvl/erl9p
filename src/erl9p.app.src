@@ -5,7 +5,8 @@
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+                  ranch
                  ]},
   {mod, { erl9p_app, []}},
   {env, []}

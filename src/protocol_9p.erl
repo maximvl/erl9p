@@ -18,12 +18,13 @@
 -define(SERVER, ?MODULE).
 
 -define(PVERSION, <<"9P2000">>).
--define(MSG_SIZE, 8192).
+-define(MAX_SIZE, 8192).
 
 -record(state, {socket        :: ranch:socket(),
                 transport     :: ranch:transport(),
                 handler       :: module(),
                 handler_state :: any(),
+                max_size      :: pos_integer(),
                 msg_size      :: pos_integer(),
                 session       :: boolean()}).
 
@@ -41,55 +42,65 @@ start_link(Ref, Socket, Transport, Opts) ->
 
 init(Ref, Socket, Transport, Opts) ->
   Handler = proplists:get_value(handler, Opts, server_impl),
-  MSize = proplists:get_value(msg_size, Opts, ?MSG_SIZE),
+  MSize = proplists:get_value(max_size, Opts, ?MAX_SIZE),
   {HState2, MSize2} = case Handler:init(Opts) of
                         {ok, HState} ->
-                          {HState, ?MSG_SIZE};
+                          {HState, ?MAX_SIZE};
                         {ok, HState, MSize} ->
                           {HState, MSize}
                       end,
   ok = ranch:accept_ack(Ref),
-  Transport:setopts(Socket, [{recbuf, ?MSG_SIZE}, {sndbuf, ?MSG_SIZE}]),
-  wait_request(#state{socket=Socket,
-                      transport=Transport,
-                      handler=Handler,
-                      handler_state=HState2,
-                      msg_size=MSize2,
-                      session=false}).
+  Transport:setopts(Socket, [{recbuf, ?MAX_SIZE}, {sndbuf, ?MAX_SIZE}, {active, true}]),
+  try wait_request(#state{socket=Socket,
+                          transport=Transport,
+                          handler=Handler,
+                          handler_state=HState2,
+                          max_size=MSize2,
+                          session=false})
+  catch E:V ->
+         error_logger:error_report([{E, V},
+                                    {trace, erlang:get_stacktrace()}])
+  end.
 
 wait_request(State) ->
   wait_request(<<>>, State).
 
-wait_request(Buffer, #state{transport=T, socket=S, msg_size=MSize}=State) ->
-  NeedBytes = MSize - byte_size(Buffer),
-  case T:recv(S, NeedBytes, infinity) of
-    {ok, Data} ->
-
-      AllData = <<Buffer/binary, Data/binary>>,
-      if byte_size(AllData) == MSize ->
-          io:format("flag 3~n"),
-
-          parse_request(AllData, State);
-         true ->
-          io:format("flag 4~n"),
-
-          wait_request(AllData, State)
-      end;
+wait_request(<<>>, #state{socket=S}=State) ->
+  receive
+    {_Transport, S, Data} ->
+      <<MSize:32/little-integer,Rest/binary>> = Data,
+      wait_request(Rest, State#state{msg_size=MSize-4});
     Other ->
       terminate(Other, State)
-  end.
+  end;
 
-parse_request(Data, State) ->
-  case make_message(Data) of
+wait_request(Buffer, #state{socket=S,
+                            msg_size=MSize}=State) when
+    byte_size(Buffer) < MSize ->
+  receive
+    {_Transport, S, Data} ->
+      AllData = <<Buffer/binary, Data/binary>>,
+      wait_request(AllData, State);
+    Other ->
+      terminate(Other, State)
+  end;
+
+%% we have complete message here
+wait_request(Buffer, #state{msg_size=MSize}=State) when
+    byte_size(Buffer) == MSize ->
+  parse_request(Buffer, State).
+
+parse_request(Data, #state{msg_size=MSize}=State) ->
+  case make_message(MSize, Data) of
     {ok, Msg} ->
       parse_message(Msg, State);
     false ->
-      terminate("cant parse message", State)
+      terminate({"cant make message from binary", Data}, State)
   end.
 
 %% first message should be session start
 parse_message({?Tversion, Tag, Data}, #state{session=false,
-                                             msg_size=MSize,
+                                             max_size=MSize,
                                              transport=T,
                                              socket=S}=State) ->
   {CSize, _V} = lib9p:parse_message(?Tversion, Data),
@@ -97,7 +108,7 @@ parse_message({?Tversion, Tag, Data}, #state{session=false,
   Resp = lib9p:pack_message(?Rversion, Tag, {MinSize, ?PVERSION}),
   T:send(S, Resp),
   T:setopts(S, [{packet_size, MinSize}]),
-  wait_request(State#state{session = true, msg_size = MinSize});
+  wait_request(State#state{session = true, max_size = MinSize});
 
 parse_message({Type, Tag, Data}, #state{session=true,
                                         transport=T,
@@ -120,16 +131,15 @@ terminate(Reason, #state{transport=T, socket=S, handler=H, handler_state=HS}) ->
 %%% Internal functions
 %%%===================================================================
 
--spec make_message(Msg::binary()) -> {ok, Type::integer(),
-                                      Tag::binary(),
-                                      Data::binary()} | false.
-make_message(<<Size:32/little-integer,
-               Type:8/little-integer,
-               Tag:2/binary,
-               Data/binary>>) when byte_size(Data) == Size-7 ->
+-spec make_message(Size::pos_integer(), Msg::binary()) -> {ok, Type::integer(),
+                                                           Tag::binary(),
+                                                           Data::binary()} | false.
+make_message(Size, <<Type:8/little-integer,
+                     Tag:2/binary,
+                     Data/binary>>) when byte_size(Data) == Size-3 ->
   {ok, {Type, Tag, Data}};
 
-make_message(_) ->
+make_message(_, _) ->
   false.
 
 -spec handle_message(Type::integer(), Tag::binary(),
