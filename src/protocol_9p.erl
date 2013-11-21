@@ -9,11 +9,15 @@
 -module(protocol_9p).
 
 -behaviour(ranch_protocol).
+-behaviour(gen_server).
 
 -include("9p.hrl").
 
 %% API
--export([start_link/4, init/4]).
+-export([start_link/4, async_reply/4]).
+
+%% Callbacks
+-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 -define(SERVER, ?MODULE).
 
@@ -25,7 +29,8 @@
                 handler       :: module(),
                 handler_state :: any(),
                 max_size      :: pos_integer(),
-                msg_size      :: pos_integer(),
+                buffer        :: iodata(),
+                msg_size      :: undefined | pos_integer(),
                 session       :: boolean()}).
 
 %%%===================================================================
@@ -33,14 +38,13 @@
 %%%===================================================================
 
 start_link(Ref, Socket, Transport, Opts) ->
-  Pid = proc_lib:spawn_link(?MODULE, init, [Ref, Socket, Transport, Opts]),
-  {ok, Pid}.
+  gen_server:start_link(?MODULE, [Ref, Socket, Transport, Opts], []).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
-init(Ref, Socket, Transport, Opts) ->
+init([Ref, Socket, Transport, Opts]) ->
   Handler = proplists:get_value(handler, Opts, server_impl),
   MSize = proplists:get_value(max_size, Opts, ?MAX_SIZE),
   {HState2, MSize2} = case Handler:init(Opts) of
@@ -49,78 +53,46 @@ init(Ref, Socket, Transport, Opts) ->
                         {ok, HState, MSize} ->
                           {HState, MSize}
                       end,
+  gen_server:cast(self(), {do_init, Ref}),
+  {ok, #state{socket=Socket,
+              transport=Transport,
+              handler=Handler,
+              handler_state=HState2,
+              max_size=MSize2,
+              buffer= <<>>,
+              msg_size=undefined,
+              session=false}}.
+
+handle_call(_Msg, _From, State) ->
+  {reply, ok, State}.
+
+handle_cast({do_init, Ref}, #state{transport=T,
+                                   socket=S}=State) ->
   ok = ranch:accept_ack(Ref),
-  Transport:setopts(Socket, [{recbuf, ?MAX_SIZE}, {sndbuf, ?MAX_SIZE}, {active, true}]),
-  try wait_request(#state{socket=Socket,
-                          transport=Transport,
-                          handler=Handler,
-                          handler_state=HState2,
-                          max_size=MSize2,
-                          session=false})
-  catch E:V ->
-         error_logger:error_report([{E, V},
-                                    {trace, erlang:get_stacktrace()}])
-  end.
+  T:setopts(S, [{recbuf, ?MAX_SIZE}, {sndbuf, ?MAX_SIZE}, {active, true}]),
+  {noreply, State};
 
-wait_request(State) ->
-  wait_request(<<>>, State).
-
-wait_request(<<>>, #state{socket=S}=State) ->
-  receive
-    {_Transport, S, Data} ->
-      <<MSize:32/little-integer,Rest/binary>> = Data,
-      wait_request(Rest, State#state{msg_size=MSize-4});
-    Other ->
-      terminate(Other, State)
-  end;
-
-wait_request(Buffer, #state{socket=S,
-                            msg_size=MSize}=State) when
-    byte_size(Buffer) < MSize ->
-  receive
-    {_Transport, S, Data} ->
-      AllData = <<Buffer/binary, Data/binary>>,
-      wait_request(AllData, State);
-    Other ->
-      terminate(Other, State)
-  end;
-
-%% we have complete message here
-wait_request(Buffer, #state{msg_size=MSize}=State) when
-    byte_size(Buffer) == MSize ->
-  parse_request(Buffer, State).
-
-parse_request(Data, #state{msg_size=MSize}=State) ->
-  case make_message(MSize, Data) of
-    {ok, Msg} ->
-      parse_message(Msg, State);
-    false ->
-      terminate({"cant make message from binary", Data}, State)
-  end.
-
-%% first message should be session start
-parse_message({?Tversion, Tag, Data}, #state{session=false,
-                                             max_size=MSize,
-                                             transport=T,
-                                             socket=S}=State) ->
-  {CSize, _V} = lib9p:parse_message(?Tversion, Data),
-  MinSize = min(MSize, CSize),
-  Resp = lib9p:pack_message(?Rversion, Tag, {MinSize, ?PVERSION}),
-  T:send(S, Resp),
-  T:setopts(S, [{packet_size, MinSize}]),
-  wait_request(State#state{session = true, max_size = MinSize});
-
-parse_message({Type, Tag, Data}, #state{session=true,
-                                        transport=T,
-                                        socket=S,
-                                        handler=H,
-                                        handler_state=Hs}=State) ->
-  {Reply, NHs} = handle_message(Type, Tag, Data, H, Hs),
+handle_cast({reply9p, Reply}, #state{socket=S,
+                                     transport=T}=State) ->
   T:send(S, Reply),
-  wait_request(State#state{handler_state=NHs});
+  {noreply, State};
 
-parse_message(_, State) ->
-  terminate("session was not started with TVersion", State).
+handle_cast(_Msg, State) ->
+  {noreply, State}.
+
+handle_info({_Trans, S, Data}, #state{socket=S, buffer=Buff}=State) ->
+  FullData = <<Buff/binary, Data/binary>>,
+  NState = maybe_process_message(State#state{buffer=FullData}),
+  {noreply, NState};
+
+handle_info({tcp_closed, S}, #state{socket=S}=State) ->
+  {stop, {shutdown, tcp_closed}, State};
+
+handle_info(_Info, State) ->
+  {noreply, State}.
+
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.
 
 terminate(Reason, #state{transport=T, socket=S, handler=H, handler_state=HS}) ->
   H:terminate(Reason, HS),
@@ -130,17 +102,74 @@ terminate(Reason, #state{transport=T, socket=S, handler=H, handler_state=HS}) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+-spec maybe_process_message(#state{}) -> #state{}.
+maybe_process_message(#state{msg_size=undefined,
+                             buffer=Buff}=State) ->
+  case Buff of
+    <<MSize:32/little-integer, Rest/binary>> ->
+      maybe_process_message(State#state{msg_size=MSize-4,
+                                        buffer=Rest});
+    _ ->
+      State
+  end;
+maybe_process_message(#state{msg_size=MSize,
+                             buffer=Buff}=State) when
+    byte_size(Buff) < MSize ->
+  State;
+maybe_process_message(#state{msg_size=MSize,
+                             buffer=Buff}=State) when
+    byte_size(Buff) == MSize ->
+  <<Type:8/little-integer, Tag:2/binary, Msg/binary>> = Buff,
+  Payload = {Type, Tag, Msg},
+  process_message(Payload, State);
+maybe_process_message(#state{msg_size=MSize,
+                             buffer=Buff}=State) when
+    byte_size(Buff) > MSize ->
+  <<Msg1:MSize/binary, Rest/binary>> = Buff,
+  NState = maybe_process_message(State#state{buffer=Msg1}),
+  maybe_process_message(NState#state{buffer=Rest,
+                                     msg_size=undefined}).
 
--spec make_message(Size::pos_integer(), Msg::binary()) -> {ok, Type::integer(),
-                                                           Tag::binary(),
-                                                           Data::binary()} | false.
-make_message(Size, <<Type:8/little-integer,
-                     Tag:2/binary,
-                     Data/binary>>) when byte_size(Data) == Size-3 ->
-  {ok, {Type, Tag, Data}};
+%% first message should be session start
+-spec process_message(Msg::tuple(), #state{}) -> #state{}.
+process_message({?Tversion, Tag, Data}, #state{session=false,
+                                               max_size=MSize,
+                                               transport=T,
+                                               socket=S,
+                                               handler=H,
+                                               handler_state=Hs}=State) ->
+  io:format("flag 1~n"),
+  {CSize, ClientVers} = lib9p:parse_message(?Tversion, Data),
+  NHs = H:session_init(ClientVers, Hs),
+  error_logger:info_report(["session started",
+                            {client_version, ClientVers},
+                            {msize, CSize}]),
+  MinSize = min(MSize, CSize),
+  Resp = lib9p:pack_message(?Rversion, Tag, {MinSize, ?PVERSION}),
+  T:send(S, Resp),
+  T:setopts(S, [{packet_size, MinSize}]),
+  State#state{session=true, max_size=MinSize, handler_state=NHs};
 
-make_message(_, _) ->
-  false.
+%% restart session
+process_message({?Tversion, Tag, Data}, #state{session=true}=State) ->
+  io:format("flag 2~n"),
+  process_message({?Tversion, Tag, Data}, State#state{session=false});
+
+process_message({Type, Tag, Data}, #state{session=true,
+                                          transport=T,
+                                          socket=S,
+                                          handler=H,
+                                          handler_state=Hs}=State) ->
+  case handle_message(Type, Tag, Data, H, Hs) of
+    {reply, Reply, NHs} ->
+      T:send(S, Reply),
+      State#state{handler_state=NHs};
+    {noreply, NHs} ->
+      State#state{handler_state=NHs}
+  end;
+
+process_message(_, State) ->
+  erlang:error("session was not started with TVersion", State).
 
 -spec handle_message(Type::integer(), Tag::binary(),
                      Data::binary(), Handler::module(),
@@ -149,12 +178,22 @@ handle_message(Type, Tag, Data, Handler, HState) ->
   case lib9p:parse_message(Type, Data) of
     false ->
       Msg = lib9p:pack_message(?Rerror, Tag, <<"cant parse message">>),
-      {Msg, HState};
+      {reply, Msg, HState};
     Parsed ->
       case Handler:handle_9p(Type, Parsed, HState) of
-        {ok, Reply, NHState} ->
-          {lib9p:pack_message(Type+1, Tag, Reply), NHState};
+        {reply, Reply, NHState} ->
+          {reply, lib9p:pack_message(Type+1, Tag, Reply), NHState};
         {error, Emsg, NHState} ->
-          {lib9p:pack_message(?Rerror, Tag, Emsg), NHState}
+          {reply, lib9p:pack_message(?Rerror, Tag, Emsg), NHState};
+        {noreply, NHState} ->
+          {noreply, NHState}
       end
   end.
+
+async_reply(Pid, error, Tag, Msg) ->
+  Resp = lib9p:pack_message(?Rerror, Tag, Msg),
+  gen_server:cast(Pid, {reply9p, Resp});
+
+async_reply(Pid, Type, Tag, Reply) ->
+  Resp = lib9p:pack_message(Type+1, Tag, Reply),
+  gen_server:cast(Pid, {reply9p, Resp}).

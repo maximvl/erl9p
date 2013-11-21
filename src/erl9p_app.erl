@@ -13,7 +13,7 @@ start(_StartType, _StartArgs) ->
   {ok, _} = ranch:start_listener(
               erl9p, 10,
               ranch_tcp,
-              [{port, 5555}, {active, false}],
+              [{port, 5555}, {active, true}],
               protocol_9p, []),
   erl9p_sup:start_link().
 

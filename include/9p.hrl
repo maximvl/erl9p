@@ -38,3 +38,15 @@
 
 -define(Twstat   , 126).
 -define(Rwstat   , 127).
+
+
+%% Qid Types
+
+-define(QTDIR    , 80).
+-define(QTAPPEND , 40).
+-define(QTEXCL   , 20).
+-define(QTMOUNT  , 10).
+-define(QTAUTH   , 8).
+-define(QTTMP    , 4).
+-define(QTLINK   , 2).
+-define(QTFILE   , 0).
