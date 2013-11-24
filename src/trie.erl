@@ -31,7 +31,7 @@ node_qid(Node) when is_record(Node, node) ->
 node_children(Node) when is_record(Node, node) ->
   Node#node.children.
 
--spec find(#node{}, binary()) -> {ok, #node{}} | false.
+-spec find(#node{}, [binary()]) -> {ok, #node{}} | false.
 find(Node, []) ->
   {ok, Node};
 

@@ -7,7 +7,7 @@
 
 %% Version
 
--spec parse_message(integer(), binary()) -> false | any().
+-spec parse_message(byte(), binary()) -> false | tuple() | binary().
 parse_message(?Tversion, <<MSize:32/little-integer,
                            S:16/little-integer,
                            Version:S/binary>>) ->
@@ -77,7 +77,7 @@ parse_message(?Tcreate, <<Fid:32/little-integer,
 
 parse_message(?Rcreate, <<Qid:13/binary,
                           IOunit:32/little-integer>>) ->
-  {qid_to_binary(Qid), IOunit};
+  {binary_to_qid(Qid), IOunit};
 
 parse_message(?Tread, <<Fid:32/little-integer,
                         Offset:64/little-integer,
@@ -129,7 +129,7 @@ parse_message(_, _) ->
 
 %% Packing
 
--spec pack_message(integer(), binary(), any()) -> binary().
+-spec pack_message(byte(), binary(), tuple() | binary()) -> binary().
 pack_message(Type, Tag, Data) ->
   BinData = pack_message(Type, Data),
   DSize = size(BinData) + 7,
@@ -335,15 +335,15 @@ wqids_to_binary([H|T], Acc) ->
   BQid = qid_to_binary(H),
   wqids_to_binary(T, <<Acc/binary, BQid:13/binary>>).
 
--spec binary_to_wqids(integer(), [binary()]) -> [binary()].
+-spec binary_to_wqids(integer(), binary()) -> [{byte(), integer(), integer()}].
 binary_to_wqids(0, _) ->
   [];
 
 binary_to_wqids(N, <<Wqid:13/binary,
                      Rest/binary>>) ->
-  [binary_to_qid(Wqid), binary_to_wqids(N-1, Rest)].
+  [binary_to_qid(Wqid) | binary_to_wqids(N-1, Rest)].
 
--spec binary_to_qid(binary()) -> {integer(), integer(), integer()}.
+-spec binary_to_qid(binary()) -> {byte(), integer(), integer()}.
 binary_to_qid(<<Type:8/little-integer,
                 Vers:32/little-integer,
                 Path:64/little-integer>>) ->

@@ -121,7 +121,7 @@ maybe_process_message(#state{msg_size=MSize,
     byte_size(Buff) == MSize ->
   <<Type:8/little-integer, Tag:2/binary, Msg/binary>> = Buff,
   Payload = {Type, Tag, Msg},
-  process_message(Payload, State);
+  process_message(Payload, State#state{msg_size=undefined, buffer= <<>>});
 maybe_process_message(#state{msg_size=MSize,
                              buffer=Buff}=State) when
     byte_size(Buff) > MSize ->
@@ -138,12 +138,8 @@ process_message({?Tversion, Tag, Data}, #state{session=false,
                                                socket=S,
                                                handler=H,
                                                handler_state=Hs}=State) ->
-  io:format("flag 1~n"),
   {CSize, ClientVers} = lib9p:parse_message(?Tversion, Data),
   NHs = H:session_init(ClientVers, Hs),
-  error_logger:info_report(["session started",
-                            {client_version, ClientVers},
-                            {msize, CSize}]),
   MinSize = min(MSize, CSize),
   Resp = lib9p:pack_message(?Rversion, Tag, {MinSize, ?PVERSION}),
   T:send(S, Resp),
@@ -152,7 +148,6 @@ process_message({?Tversion, Tag, Data}, #state{session=false,
 
 %% restart session
 process_message({?Tversion, Tag, Data}, #state{session=true}=State) ->
-  io:format("flag 2~n"),
   process_message({?Tversion, Tag, Data}, State#state{session=false});
 
 process_message({Type, Tag, Data}, #state{session=true,
@@ -171,9 +166,10 @@ process_message({Type, Tag, Data}, #state{session=true,
 process_message(_, State) ->
   erlang:error("session was not started with TVersion", State).
 
--spec handle_message(Type::integer(), Tag::binary(),
+-spec handle_message(Type::byte(), Tag::binary(),
                      Data::binary(), Handler::module(),
-                     HState::any()) -> {Resp::iodata(), NHState::any()}.
+                     HState::any()) ->
+                        {reply, Resp::iodata(), NHState::any()} | {noreply, NHState::any()}.
 handle_message(Type, Tag, Data, Handler, HState) ->
   case lib9p:parse_message(Type, Data) of
     false ->

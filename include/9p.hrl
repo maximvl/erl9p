@@ -1,3 +1,6 @@
+
+%% 9p message tags
+
 -define(Tversion , 100).
 -define(Rversion , 101).
 
@@ -42,11 +45,56 @@
 
 %% Qid Types
 
--define(QTDIR    , 80).
--define(QTAPPEND , 40).
--define(QTEXCL   , 20).
--define(QTMOUNT  , 10).
--define(QTAUTH   , 8).
--define(QTTMP    , 4).
--define(QTLINK   , 2).
--define(QTFILE   , 0).
+-define(DirType    , 128).
+-define(AppendType , 64).
+-define(ExclType   , 32).
+-define(MountType  , 16).
+-define(AuthType   , 8).
+-define(TmpType    , 4).
+-define(LinkType   , 2).
+-define(FileType   , 0).
+
+-type qid_type() :: ?DirType    |
+                    ?AppendType |
+                    ?ExclType   |
+                    ?MountType  |
+                    ?AuthType   |
+                    ?TmpType    |
+                    ?LinkType   |
+                    ?FileType.
+
+-type qid_version() :: non_neg_integer().
+-type qid_path() :: <<_:64>>.
+
+-record(qid, {type    :: qid_type(),
+              version :: qid_version(),
+              path    :: qid_path()}).
+
+-type qid() :: #qid{}.
+
+-define(DirMode       , 16#80000000).
+-define(AppendMode    , 16#40000000).
+-define(ExclMode      , 16#20000000).
+-define(MountMode     , 16#10000000).
+-define(AuthMode      , 16#08000000).
+-define(TmpMode       , 16#04000000).
+-define(LinkMode      , 16#02000000).
+%% 9P2000.u extensions
+-define(DeviceMode    , 16#00800000).
+-define(NamedPipeMode , 16#00200000).
+-define(SocketMode    , 16#00100000).
+-define(SetUIDMode    , 16#00080000).
+-define(SetGIDMode    , 16#00040000).
+
+-type mod_type() :: ?DirMode       |
+                    ?AppendMode    |
+                    ?ExclMode      |
+                    ?MountMode     |
+                    ?AuthMode      |
+                    ?TmpMode       |
+                    ?LinkMode      |
+                    ?DeviceMode    |
+                    ?NamedPipeMode |
+                    ?SocketMode    |
+                    ?SetUIDMode    |
+                    ?SetGIDMode.
