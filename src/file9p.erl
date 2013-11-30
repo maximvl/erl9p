@@ -1,7 +1,6 @@
 -module(file9p).
 
 -export([make/5,
-         mode/1   , mode/2,
          atime/1  , atime/2,
          mtime/1  , mtime/2,
          length/1 , length/2,
@@ -10,39 +9,40 @@
          gid/1    , gid/2,
          muid/1   , muid/2,
          type/1, version/1, path/1,
-         is_directory/1]).
+         qid/1,
+         is_directory/1,
+         read_mode/3,
+         write_mode/3,
+         exec_mode/3,
+         set_mode/2,
+         stat/1]).
 
 -include("9p.hrl").
 
--record(file9p, {type,                          % for kernel use?
-               dev,                           % for kernel use?
-               qid :: qid(),                  % unique qid
-               mode,                          % access mode
-               atime :: pos_integer(),        % access time
-               mtime :: pos_integer(),        % modification time
-               length :: integer(),           % file data size
-               name :: binary(),              % file name
-               uid :: binary(),               % owner id
-               gid :: binary(),               % group id
-               muid :: binary()}).            % last modifier uid
+-record(file9p, {type = 0 :: integer(),           % for kernel use?
+                 dev  = 0 :: integer(),           % for kernel use?
+                 qid      :: qid(),               % unique qid
+                 mode     :: integer(),           % access mode
+                 atime    :: pos_integer(),       % last read time
+                 mtime    :: pos_integer(),       % last write time
+                 length   :: integer(),           % file data size
+                 name     :: binary(),            % file name
+                 uid      :: binary(),            % owner id
+                 gid      :: binary(),            % group id
+                 muid     :: binary()}).          % last modifier uid
 
 -type file9p() :: #file9p{}.
 -export_type([file9p/0]).
 
 -spec make(Type::qid_type(), Name::binary(),
-           Mode::pos_integer(), Uid::binary(),
+           Mode::integer(), Uid::binary(),
            Gid::binary()) -> file9p().
 make(Type, Name, Mode, Uid, Gid) ->
   Qid = make_qid(Type),
-  #file9p{name=Name, qid=Qid, mode=Mode, uid=Uid, gid=Gid}.
-
--spec mode(file9p()) -> pos_integer().
-mode(#file9p{mode=Mode}) ->
-  Mode.
-
--spec mode(file9p(), pos_integer()) -> file9p().
-mode(#file9p{}=File, Mode) ->
-  File#file9p{mode=Mode}.
+  Ts = unix_now(),
+  #file9p{qid=Qid, mode=Mode, atime=Ts,
+          mtime=Ts, length=0, name=Name,
+          uid=Uid, gid=Gid, muid=Uid}.
 
 -spec atime(file9p()) -> pos_integer().
 atime(#file9p{atime=Atime}) ->
@@ -112,9 +112,75 @@ version(#file9p{qid=Qid}) ->
 path(#file9p{qid=Qid}) ->
   Qid#qid.path.
 
+-spec qid(file9p()) -> {qid_type(), qid_version(), qid_path()}.
+qid(#file9p{qid=#qid{type=T, version=V, path=P}}) ->
+  {T, V, P}.
+
+-spec stat(file9p()) -> binary().
+stat(#file9p{type=Type, dev=Dev,
+             qid=#qid{type=QType, version=QVers, path=QPath},
+             mode=Mode, atime=Atime, mtime=Mtime,
+             length=Length, name=Name, uid=Uid,
+             gid=Gid, muid=Muid}) ->
+  NameSize = byte_size(Name),
+  UidSize = byte_size(Uid),
+  GidSize = byte_size(Gid),
+  MuidSize = byte_size(Muid),
+  <<Type:16, Dev:32, QType:8, QVers:32, QPath:8/binary,
+    Mode:32, Atime:32, Mtime:32, Length:64,
+    NameSize:16/little-integer, Name/binary,
+    UidSize:16/little-integer, Uid/binary,
+    GidSize:16/little-integer, Gid/binary,
+    MuidSize:16/little-integer, Muid/binary>>.
+
+
 -spec is_directory(file9p()) -> boolean().
 is_directory(#file9p{qid=Qid}) ->
   Qid#qid.type == ?DirType.
+
+-spec read_mode(File::file9p(), User::binary(), Group::binary()) ->
+                   boolean().
+read_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
+          User, Group) ->
+  Mask = if Uid == User ->
+             8#444;
+            Gid == Group ->
+             8#44;
+            true ->
+             8#4
+         end,
+  (Mode band 8#777 band Mask) /= 0.
+
+-spec write_mode(File::file9p(), User::binary(), Group::binary()) ->
+                    boolean().
+write_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
+           User, Group) ->
+  Mask = if Uid == User ->
+             8#222;
+            Gid == Group ->
+             8#22;
+            true ->
+             8#2
+         end,
+  (Mode band 8#777 band Mask) /= 0.
+
+-spec exec_mode(File::file9p(), User::binary(), Group::binary()) ->
+                   boolean().
+exec_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
+          User, Group) ->
+  Mask = if Uid == User ->
+             8#111;
+            Gid == Group ->
+             8#11;
+            true ->
+             8#1
+         end,
+  (Mode band 8#777 band Mask) /= 0.
+
+-spec set_mode(File::file9p(), SMode::integer()) -> file9p().
+set_mode(#file9p{mode=Mode}=File, SMode)
+  when is_integer(SMode) andalso SMode >= 0 andalso SMode =< 8#777 ->
+  File#file9p{mode=(Mode bor SMode)}.
 
 %% Utils
 
@@ -123,3 +189,8 @@ make_qid(Type) ->
   #qid{type=Type,
        version=1,
        path=crypto:rand_bytes(8)}.
+
+-spec unix_now() -> integer().
+unix_now() ->
+  {Mega, Sec, _} = now(),
+  Mega * 1000000 + Sec.

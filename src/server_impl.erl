@@ -17,7 +17,8 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {}).
+-record(state, {ns :: namespace:namespace(),
+                fids :: dict()}).
 
 %%%===================================================================
 %%% API
@@ -28,7 +29,10 @@
 %%%===================================================================
 
 init(_) ->
-  {ok, #state{}}.
+  Mode = ?DirMode bor 8#777,
+  Root = file9p:make(?DirType, <<"/">>, Mode, <<"nobody">>, <<"nobody">>),
+  Ns = namespace:make(<<"">>, Root),
+  {ok, #state{ns=Ns, fids=dict:new()}}.
 
 session_init(V, State) ->
   io:format("new session: ~p~n", [V]),
@@ -42,14 +46,17 @@ handle_9p(?Tflush, _Msg, State) ->
   io:format("flush: ~p~n", [_Msg]),
   {reply, <<>>, State};
 
-handle_9p(?Tattach, _Msg, State) ->
-  io:format("attach: ~p~n", [_Msg]),
-  Qid = {?FileType, 1, 1},
-  {reply, Qid, State};
+handle_9p(?Tattach, {Fid, _AFid, _Uname, _Aname}=Msg,
+          #state{ns=Ns, fids=Fids}=State) ->
+  io:format("attach: ~p~n", [Msg]),
+  Root = namespace:get_root(Ns),
+  Fids2 = dict:store(Fid, file9p:path(Root), Fids),
+  {reply, file9p:qid(Root), State#state{fids=Fids2}};
 
-handle_9p(?Tclunk, _Msg, State) ->
-  io:format("clunk: ~p~n", [_Msg]),
-  {reply, <<>>, State};
+handle_9p(?Tclunk, Fid, #state{fids=Fids}=State) ->
+  io:format("clunk: ~p~n", [Fid]),
+  Fids2 = dict:erase(Fid, Fids),
+  {reply, <<>>, State#state{fids=Fids2}};
 
 handle_9p(?Twalk, _Msg, State) ->
   io:format("walk: ~p~n", [_Msg]),
@@ -75,9 +82,11 @@ handle_9p(?Tremove, _Msg, State) ->
   io:format("remove: ~p~n", [_Msg]),
   {reply, <<>>, State};
 
-handle_9p(?Tstat, _Msg, State) ->
-  io:format("stat: ~p~n", [_Msg]),
-  {reply, <<>>, State};
+handle_9p(?Tstat, Fid, #state{ns=Ns, fids=Fids}=State) ->
+  io:format("stat: ~p~n", [Fid]),
+  Path = dict:fetch(Fid, Fids),
+  {ok, File} = namespace:get(Ns, Path),
+  {reply, file9p:stat(File), State};
 
 handle_9p(?Twstat, _Msg, State) ->
   io:format("wstat: ~p~n", [_Msg]),

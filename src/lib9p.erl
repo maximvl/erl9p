@@ -349,8 +349,9 @@ binary_to_qid(<<Type:8/little-integer,
                 Path:64/little-integer>>) ->
   {Type, Vers, Path}.
 
--spec qid_to_binary({integer(), integer(), integer()}) -> binary().
+-spec qid_to_binary({qid_type(), qid_version(), qid_path()}) ->
+                       binary().
 qid_to_binary({Type, Vers, Path}) ->
   <<Type:8/little-integer,
     Vers:32/little-integer,
-    Path:64/little-integer>>.
+    Path:8/binary>>.

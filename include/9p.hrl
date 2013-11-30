@@ -45,14 +45,14 @@
 
 %% Qid Types
 
--define(DirType    , 128).
--define(AppendType , 64).
--define(ExclType   , 32).
--define(MountType  , 16).
--define(AuthType   , 8).
--define(TmpType    , 4).
--define(LinkType   , 2).
--define(FileType   , 0).
+-define(DirType    , 16#80).
+-define(AppendType , 16#40).
+-define(ExclType   , 16#20).
+-define(MountType  , 16#10).
+-define(AuthType   , 16#08).
+-define(TmpType    , 16#04).
+-define(LinkType   , 16#02).
+-define(FileType   , 16#00).
 
 -type qid_type() :: ?DirType    |
                     ?AppendType |
@@ -78,8 +78,8 @@
 -define(MountMode     , 16#10000000).
 -define(AuthMode      , 16#08000000).
 -define(TmpMode       , 16#04000000).
--define(LinkMode      , 16#02000000).
 %% 9P2000.u extensions
+-define(LinkMode      , 16#02000000).
 -define(DeviceMode    , 16#00800000).
 -define(NamedPipeMode , 16#00200000).
 -define(SocketMode    , 16#00100000).
