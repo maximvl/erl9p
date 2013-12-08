@@ -42,6 +42,10 @@
 -define(Twstat   , 126).
 -define(Rwstat   , 127).
 
+-define(NoTag, <<255,255>>).
+-define(NoFid, <<255,255,255,255>>).
+-define(NoUid, <<255,255,255,255>>).
+
 
 %% Qid Types
 

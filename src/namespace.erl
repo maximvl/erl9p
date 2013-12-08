@@ -6,7 +6,7 @@
          get/2,
          get_root/1,
          get_children/2,
-         get_child_with_name/3,
+         find_child_with_name/3,
          contains/2,
          all_files/1]).
 
@@ -27,7 +27,7 @@
 -spec make(Name::binary(), Root::file9p()) -> namespace().
 make(Name, RootDir) ->
   true = file9p:is_directory(RootDir),
-  <<"/">> = file9p:name(RootDir),
+  <<>> = file9p:name(RootDir),
   Path = file9p:path(RootDir),
   Node = make_node(RootDir),
   Content = dict:store(Path, Node, dict:new()),
@@ -85,7 +85,9 @@ get_root(#namespace{content=C, root=Root}) ->
   RNode = dict:fetch(Root, C),
   RNode#node.file.
 
-get_child_with_name(#namespace{content=C}, DirPath, Name) ->
+-spec find_child_with_name(namespace(), file9p(), binary()) ->
+                              {ok, file9p()} | error.
+find_child_with_name(#namespace{content=C}, DirPath, Name) ->
   case dict:find(DirPath, C) of
     {ok, #node{children=Ch, file=Dir}} ->
       true = file9p:is_directory(Dir),

@@ -30,7 +30,7 @@
 
 init(_) ->
   Mode = ?DirMode bor 8#777,
-  Root = file9p:make(?DirType, <<"/">>, Mode, <<"nobody">>, <<"nobody">>),
+  Root = file9p:make(?DirType, <<>>, Mode, <<"root">>, <<"root">>),
   Ns = namespace:make(<<"">>, Root),
   {ok, #state{ns=Ns, fids=dict:new()}}.
 
@@ -58,9 +58,14 @@ handle_9p(?Tclunk, Fid, #state{fids=Fids}=State) ->
   Fids2 = dict:erase(Fid, Fids),
   {reply, <<>>, State#state{fids=Fids2}};
 
-handle_9p(?Twalk, _Msg, State) ->
-  io:format("walk: ~p~n", [_Msg]),
-  {reply, <<>>, State};
+handle_9p(?Twalk, {Fid, NFid, Names}, #state{fids=Fids,
+                                             ns=Ns}=State) ->
+  {ok, Qid} = dict:find(Fid, Fids),
+  {ok, Cur} = namespace:get(Ns, Qid),
+  {ok, File} = namespace:find_child_with_name(Ns, Cur, Names),
+  Fids2 = dict:store(NFid, file9p:path(File), Fids),
+  io:format("walk: ~p -> ~p : ~p~n", [Fid, NFid, Names]),
+  {reply, <<>>, State#state{fids=Fids2}};
 
 handle_9p(?Topen, _Msg, State) ->
   io:format("open: ~p~n", [_Msg]),

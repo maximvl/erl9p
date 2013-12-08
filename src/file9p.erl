@@ -11,9 +11,9 @@
          type/1, version/1, path/1,
          qid/1,
          is_directory/1,
-         read_mode/3,
-         write_mode/3,
-         exec_mode/3,
+         readable/3,
+         writable/3,
+         executable/3,
          set_mode/2,
          stat/1]).
 
@@ -25,7 +25,7 @@
                  mode     :: integer(),           % access mode
                  atime    :: pos_integer(),       % last read time
                  mtime    :: pos_integer(),       % last write time
-                 length   :: integer(),           % file data size
+                 length   :: integer(),           % data size
                  name     :: binary(),            % file name
                  uid      :: binary(),            % owner id
                  gid      :: binary(),            % group id
@@ -126,8 +126,8 @@ stat(#file9p{type=Type, dev=Dev,
   UidSize = byte_size(Uid),
   GidSize = byte_size(Gid),
   MuidSize = byte_size(Muid),
-  <<Type:16, Dev:32, QType:8, QVers:32, QPath:8/binary,
-    Mode:32, Atime:32, Mtime:32, Length:64,
+  <<Type:16, Dev:32, QType:8, QVers:32/little-integer,QPath:8/binary,
+    Mode:32/little-integer, Atime:32, Mtime:32, Length:64,
     NameSize:16/little-integer, Name/binary,
     UidSize:16/little-integer, Uid/binary,
     GidSize:16/little-integer, Gid/binary,
@@ -138,9 +138,9 @@ stat(#file9p{type=Type, dev=Dev,
 is_directory(#file9p{qid=Qid}) ->
   Qid#qid.type == ?DirType.
 
--spec read_mode(File::file9p(), User::binary(), Group::binary()) ->
+-spec readable(File::file9p(), User::binary(), Group::binary()) ->
                    boolean().
-read_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
+readable(#file9p{uid=Uid, gid=Gid, mode=Mode},
           User, Group) ->
   Mask = if Uid == User ->
              8#444;
@@ -151,9 +151,9 @@ read_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
          end,
   (Mode band 8#777 band Mask) /= 0.
 
--spec write_mode(File::file9p(), User::binary(), Group::binary()) ->
+-spec writable(File::file9p(), User::binary(), Group::binary()) ->
                     boolean().
-write_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
+writable(#file9p{uid=Uid, gid=Gid, mode=Mode},
            User, Group) ->
   Mask = if Uid == User ->
              8#222;
@@ -164,9 +164,9 @@ write_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
          end,
   (Mode band 8#777 band Mask) /= 0.
 
--spec exec_mode(File::file9p(), User::binary(), Group::binary()) ->
+-spec executable(File::file9p(), User::binary(), Group::binary()) ->
                    boolean().
-exec_mode(#file9p{uid=Uid, gid=Gid, mode=Mode},
+executable(#file9p{uid=Uid, gid=Gid, mode=Mode},
           User, Group) ->
   Mask = if Uid == User ->
              8#111;

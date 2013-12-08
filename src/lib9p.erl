@@ -132,7 +132,7 @@ parse_message(_, _) ->
 -spec pack_message(byte(), binary(), tuple() | binary()) -> binary().
 pack_message(Type, Tag, Data) ->
   BinData = pack_message(Type, Data),
-  DSize = size(BinData) + 7,
+  DSize = byte_size(BinData) + 7,
   <<DSize:32/little-integer,
     Type:8/little-integer,
     Tag:2/binary,
@@ -140,13 +140,13 @@ pack_message(Type, Tag, Data) ->
 
 -spec pack_message(integer(), any()) -> binary().
 pack_message(?Tversion, {MSize, Version}) ->
-  S = size(Version),
+  S = byte_size(Version),
   <<MSize:32/little-integer,
     S:16/little-integer,
     Version/binary>>;
 
 pack_message(?Rversion, {MSize, Version}) ->
-  S = size(Version),
+  S = byte_size(Version),
   <<MSize:32/little-integer,
     S:16/little-integer,
     Version/binary>>;
@@ -154,8 +154,8 @@ pack_message(?Rversion, {MSize, Version}) ->
 %% Auth
 
 pack_message(?Tauth, {AFid, Uname, Aname}) ->
-  Su = size(Uname),
-  Sa = size(Aname),
+  Su = byte_size(Uname),
+  Sa = byte_size(Aname),
   <<AFid:32/little-integer,
     Su:16/little-integer,
     Uname/binary,
@@ -168,7 +168,7 @@ pack_message(?Rauth, AQid) ->
 %% Error
 
 pack_message(?Rerror, Name) ->
-  S = size(Name),
+  S = byte_size(Name),
   <<S:16/little-integer,
     Name/binary>>;
 
@@ -183,8 +183,8 @@ pack_message(?Rflush, _) ->
 %% Attach
 
 pack_message(?Tattach, {Fid, AFid, Uname, Aname}) ->
-  Su = size(Uname),
-  Sa = size(Aname),
+  Su = byte_size(Uname),
+  Sa = byte_size(Aname),
   <<Fid:32/little-integer,
     AFid:32/little-integer,
     Su:16/little-integer,
@@ -225,7 +225,7 @@ pack_message(?Ropen, {Qid, IOunit}) ->
 %% Create
 
 pack_message(?Tcreate, {Fid, Name, Perm, Mode}) ->
-  S = size(Name),
+  S = byte_size(Name),
   <<Fid:32/little-integer,
     S:16/little-integer,
     Name/binary,
@@ -245,14 +245,14 @@ pack_message(?Tread, {Fid, Offset, Count}) ->
     Count:32/little-integer>>;
 
 pack_message(?Rread, RData) ->
-  Count = size(RData),
+  Count = byte_size(RData),
   <<Count:32/little-integer,
     RData/binary>>;
 
 %% Write
 
 pack_message(?Twrite, {Fid, Offset, WData}) ->
-  Count = size(WData),
+  Count = byte_size(WData),
   <<Fid:32/little-integer,
     Offset:64/little-integer,
     Count:32/little-integer,
@@ -283,14 +283,16 @@ pack_message(?Tstat, Fid) ->
   <<Fid:32/little-integer>>;
 
 pack_message(?Rstat, Stat) ->
-  N = size(Stat),
-  <<N:16/little-integer,
-    Stat/binary>>;
+  N = byte_size(Stat),
+  Stat1 = <<N:16/little-integer,
+            Stat/binary>>,
+  FSize = byte_size(Stat1),
+  <<FSize:16/little-integer, Stat1/binary>>;
 
 %% WStat
 
 pack_message(?Twstat, {Fid, Stat}) ->
-  N = size(Stat),
+  N = byte_size(Stat),
   <<Fid:32/little-integer,
     N:16/little-integer,
     Stat/binary>>;
@@ -309,7 +311,7 @@ wnames_to_binary([], Acc) ->
   Acc;
 
 wnames_to_binary([H|T], Acc) ->
-  S = size(H),
+  S = byte_size(H),
   Data = <<S:16/little-integer,
            H/binary>>,
   wnames_to_binary(T, <<Acc/binary, Data/binary>>).
@@ -321,7 +323,7 @@ binary_to_wnames(0, _) ->
 binary_to_wnames(N, <<S:16/little-integer,
                       Wname:S/binary,
                       Rest/binary>>) ->
-  [Wname, binary_to_wnames(N-1, Rest)].
+  [Wname | binary_to_wnames(N-1, Rest)].
 
 -spec wqids_to_binary([binary()]) -> binary().
 wqids_to_binary(Qids) ->
