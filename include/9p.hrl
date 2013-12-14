@@ -102,3 +102,5 @@
                     ?SocketMode    |
                     ?SetUIDMode    |
                     ?SetGIDMode.
+
+-define(IOUnit, 8168).

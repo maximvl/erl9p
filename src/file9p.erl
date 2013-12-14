@@ -11,6 +11,7 @@
          type/1, version/1, path/1,
          qid/1,
          is_directory/1,
+         accessible/4,
          readable/3,
          writable/3,
          executable/3,
@@ -138,6 +139,19 @@ stat(#file9p{type=Type, dev=Dev,
 is_directory(#file9p{qid=Qid}) ->
   Qid#qid.type == ?DirType.
 
+-spec accessible(File::file9p(), User::binary(),
+                 Group::binary(), Mode::byte()) -> boolean().
+accessible(#file9p{uid=Uid, gid=Gid, mode=Mode},
+           User, Group, AMode) ->
+  Mask = if User == Uid ->
+             8#777;
+            Group == Gid ->
+             8#77;
+            true ->
+             8#7
+         end,
+  (Mode band Mask band AMode) == AMode.
+
 -spec readable(File::file9p(), User::binary(), Group::binary()) ->
                    boolean().
 readable(#file9p{uid=Uid, gid=Gid, mode=Mode},
@@ -149,7 +163,7 @@ readable(#file9p{uid=Uid, gid=Gid, mode=Mode},
             true ->
              8#4
          end,
-  (Mode band 8#777 band Mask) /= 0.
+  (Mode band Mask) /= 0.
 
 -spec writable(File::file9p(), User::binary(), Group::binary()) ->
                     boolean().
@@ -162,7 +176,7 @@ writable(#file9p{uid=Uid, gid=Gid, mode=Mode},
             true ->
              8#2
          end,
-  (Mode band 8#777 band Mask) /= 0.
+  (Mode band Mask) /= 0.
 
 -spec executable(File::file9p(), User::binary(), Group::binary()) ->
                    boolean().
@@ -175,7 +189,7 @@ executable(#file9p{uid=Uid, gid=Gid, mode=Mode},
             true ->
              8#1
          end,
-  (Mode band 8#777 band Mask) /= 0.
+  (Mode band Mask) /= 0.
 
 -spec set_mode(File::file9p(), SMode::integer()) -> file9p().
 set_mode(#file9p{mode=Mode}=File, SMode)
