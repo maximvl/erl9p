@@ -140,51 +140,51 @@ is_directory(#file9p{qid=Qid}) ->
   Qid#qid.type == ?DirType.
 
 -spec accessible(File::file9p(), User::binary(),
-                 Group::binary(), Mode::byte()) -> boolean().
-accessible(#file9p{uid=Uid, gid=Gid, mode=Mode},
-           User, Group, AMode) ->
+                 Groups::[binary()], Mode::byte()) -> boolean().
+accessible(#file9p{uid=Uid, gid=Gid, mode=Mode}, User, Groups, AMode) ->
+  InGroup = lists:member(Gid, Groups),
   Mask = if User == Uid ->
              8#777;
-            Group == Gid ->
+            InGroup == true ->
              8#77;
             true ->
              8#7
          end,
   (Mode band Mask band AMode) == AMode.
 
--spec readable(File::file9p(), User::binary(), Group::binary()) ->
+-spec readable(File::file9p(), User::binary(), Groups::[binary()]) ->
                    boolean().
-readable(#file9p{uid=Uid, gid=Gid, mode=Mode},
-          User, Group) ->
+readable(#file9p{uid=Uid, gid=Gid, mode=Mode}, User, Groups) ->
+  InGroup = lists:member(Gid, Groups),
   Mask = if Uid == User ->
              8#444;
-            Gid == Group ->
+            InGroup == true ->
              8#44;
             true ->
              8#4
          end,
   (Mode band Mask) /= 0.
 
--spec writable(File::file9p(), User::binary(), Group::binary()) ->
+-spec writable(File::file9p(), User::binary(), Groups::[binary()]) ->
                     boolean().
-writable(#file9p{uid=Uid, gid=Gid, mode=Mode},
-           User, Group) ->
+writable(#file9p{uid=Uid, gid=Gid, mode=Mode}, User, Groups) ->
+  InGroup = lists:member(Gid, Groups),
   Mask = if Uid == User ->
              8#222;
-            Gid == Group ->
+            InGroup == true ->
              8#22;
             true ->
              8#2
          end,
   (Mode band Mask) /= 0.
 
--spec executable(File::file9p(), User::binary(), Group::binary()) ->
+-spec executable(File::file9p(), User::binary(), Groups::[binary()]) ->
                    boolean().
-executable(#file9p{uid=Uid, gid=Gid, mode=Mode},
-          User, Group) ->
+executable(#file9p{uid=Uid, gid=Gid, mode=Mode}, User, Groups) ->
+  InGroup = lists:member(Gid, Groups),
   Mask = if Uid == User ->
              8#111;
-            Gid == Group ->
+            InGroup == true ->
              8#11;
             true ->
              8#1

@@ -17,10 +17,9 @@
 
 -define(SERVER, ?MODULE).
 
--record(state, {ns :: namespace:namespace(),
-                fids :: dict(),
-                user :: binary(),
-                group :: binary()}).
+-record(state, {ns    :: namespace:namespace(),
+                fids  :: dict(),
+                user  :: binary()}).
 
 %%%===================================================================
 %%% API
@@ -35,8 +34,7 @@ init(_) ->
   Root = file9p:make(?DirType, <<>>, Mode, <<"root">>, <<"root">>),
   Ns = namespace:make(<<"">>, Root),
   {ok, #state{ns=Ns, fids=dict:new(),
-              user= <<"nobody">>,
-              group= <<"nobody">>}}.
+              user= <<"nobody">>}}.
 
 session_init(V, State) ->
   io:format("new session: ~p~n", [V]),
@@ -71,23 +69,25 @@ handle_9p(?Twalk, {Fid, NFid, []}, #state{fids=Fids}=State) ->
   {reply, [], State#state{fids=Fids2}};
 
 handle_9p(?Twalk, {Fid, NFid, Names}, #state{fids=Fids,
-                                             ns=Ns}=State) ->
+                                             ns=Ns,
+                                             user=User}=State) ->
   io:format("walk: ~p -> ~p : ~p~n", [Fid, NFid, Names]),
   Cur = fid2file(Fid, State),
-  case namespace:find_child_with_name(Ns, Cur, Names) of
-    {ok, File} ->
-      %% TODO walk through list of names
-      Fids2 = dict:store(NFid, file9p:path(File), Fids),
-      {reply, [file9p:qid(File)], State#state{fids=Fids2}};
-    error ->
-      {error, <<"No such file or directory">>, State}
+  case walk_names(Names, Cur, Ns, User, []) of
+    {ok, Qids, LastPath} ->
+      Fids2 = dict:store(NFid, LastPath, Fids),
+      {reply, Qids, State#state{fids=Fids2}};
+    {error, Qids} when is_list(Qids) ->
+      {reply, Qids, State};
+    {error, E} when is_binary(E) ->
+      {error, E, State}
   end;
 
-handle_9p(?Topen, {Fid, Mode}, #state{user=U, group=G}=State) ->
+handle_9p(?Topen, {Fid, Mode}, #state{user=U}=State) ->
   io:format("open: ~p~n", [{Fid, Mode}]),
   File = fid2file(Fid, State),
   <<IntMode/integer>> = Mode,
-  case file9p:accessible(File, U, G, IntMode) of
+  case file9p:accessible(File, U, [], IntMode) of
     true ->
       %% TODO set/get iounit
       {reply, {file9p:qid(File), ?IOUnit}, State};
@@ -97,6 +97,7 @@ handle_9p(?Topen, {Fid, Mode}, #state{user=U, group=G}=State) ->
 
 handle_9p(?Tcreate, _Msg, State) ->
   io:format("create: ~p~n", [_Msg]),
+  %% TODO correct permissions for new file/dir
   {reply, <<>>, State};
 
 handle_9p(?Tread, _Msg, State) ->
@@ -132,3 +133,47 @@ fid2file(Fid, #state{ns=Ns, fids=Fids}) ->
   {ok, Path} = dict:find(Fid, Fids),
   {ok, File} = namespace:get(Ns, Path),
   File.
+
+-spec walk_names([binary()], file9p:file9p(),
+                 namespace:namespace(),
+                 binary(), [binary()]) ->
+                    {ok, [qid()], qid_path()} |
+                    {error, [qid()]} |
+                    {error, binary()}.
+walk_names([Name|Tail], Curr, Ns, User, Groups) ->
+  case file9p:executable(Curr, User, Groups) of
+    true ->
+      CurPath = file9p:path(Curr),
+      case namespace:find_child_with_name(Ns, CurPath, Name) of
+        {ok, File} ->
+          Qid = file9p:qid(File),
+          case walk_names1(Tail, File, Ns, User, Groups) of
+            {ok, []} ->
+              {ok, [Qid], file9p:path(File)};
+            {ok, Qids, Path} ->
+              {ok, [Qid | Qids], Path};
+            {error, Qids} when is_list(Qids) ->
+              {error, [Qid | Qids]};
+            {error, E} when is_binary(E) ->
+              {error, [Qid]}
+          end;
+        error ->
+          {error, <<"not found">>}
+      end;
+    false ->
+      {error, <<"no permission">>}
+  end.
+
+-spec walk_names1([binary()], file9p:file9p(),
+                  namespace:namespace(),
+                  binary(), [binary()]) ->
+                     {ok, []} |
+                     {ok, [qid()], qid_path()} |
+                     {error, [qid()]} |
+                     {error, binary()}.
+walk_names1([], _, _, _, _) ->
+  {ok, []};
+
+%% types hack
+walk_names1(Names, Curr, Ns, User, Groups) ->
+  walk_names(Names, Curr, Ns, User, Groups).

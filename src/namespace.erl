@@ -85,14 +85,18 @@ get_root(#namespace{content=C, root=Root}) ->
   RNode = dict:fetch(Root, C),
   RNode#node.file.
 
--spec find_child_with_name(namespace(), file9p(), binary()) ->
+-spec find_child_with_name(namespace(), qid_path(), binary()) ->
                               {ok, file9p()} | error.
 find_child_with_name(#namespace{content=C}, DirPath, Name) ->
   case dict:find(DirPath, C) of
     {ok, #node{children=Ch, file=Dir}} ->
-      true = file9p:is_directory(Dir),
-      ChildList = sets:to_list(Ch),
-      find_child(C, ChildList, Name);
+      case file9p:is_directory(Dir) of
+        true ->
+          ChildList = sets:to_list(Ch),
+          find_child(C, ChildList, Name);
+        false ->
+          error
+      end;
     _ ->
       error
   end.
