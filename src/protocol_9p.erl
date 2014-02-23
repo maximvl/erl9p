@@ -187,6 +187,9 @@ handle_message(Type, Tag, Data, Handler, HState) ->
   end.
 
 async_reply(Pid, error, Tag, Msg) ->
+  async_reply(Pid, ?Rerror, Tag, Msg);
+
+async_reply(Pid, ?Rerror, Tag, Msg) ->
   Resp = lib9p:pack_message(?Rerror, Tag, Msg),
   gen_server:cast(Pid, {reply9p, Resp});
 

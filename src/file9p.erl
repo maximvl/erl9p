@@ -1,6 +1,6 @@
 -module(file9p).
 
--export([make/5,
+-export([make/5   , is_file9p/1,
          atime/1  , atime/2,
          mtime/1  , mtime/2,
          length/1 , length/2,
@@ -44,6 +44,12 @@ make(Type, Name, Mode, Uid, Gid) ->
   #file9p{qid=Qid, mode=Mode, atime=Ts,
           mtime=Ts, length=0, name=Name,
           uid=Uid, gid=Gid, muid=Uid}.
+
+-spec is_file9p(any()) -> boolean().
+is_file9p(#file9p{}) ->
+  true;
+is_file9p(_) ->
+  false.
 
 -spec atime(file9p()) -> pos_integer().
 atime(#file9p{atime=Atime}) ->

@@ -95,8 +95,8 @@ handle_9p(?Topen, {Fid, Mode}, #state{user=U}=State) ->
       {error, <<"No permissions">>, State}
   end;
 
-handle_9p(?Tcreate, _Msg, State) ->
-  io:format("create: ~p~n", [_Msg]),
+handle_9p(?Tcreate, {Fid, Name, Perm, Mode}=Msg, State) ->
+  io:format("create: ~p~n", [Msg]),
   %% TODO correct permissions for new file/dir
   {reply, <<>>, State};
 
